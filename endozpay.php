@@ -139,7 +139,17 @@ function endozpay_init_gateway_class()
         {
             $data = json_decode(file_get_contents('php://input'), true);
             $reference = $data['reference'] ?? '';
-            logger('EndozPay Webhook received', ['reference' => $reference, 'data' => $data]);
+
+            if (!$reference) {
+                status_header(400);
+                echo 'Missing reference';
+                exit;
+            }
+
+            #log decoded message
+            wc_logger('EndozPay Webhook received', [
+                'data' => $data,
+            ]);
 
             $orders = wc_get_orders([
                 'limit' => 1,
@@ -147,12 +157,19 @@ function endozpay_init_gateway_class()
                 'meta_value' => $reference
             ]);
 
-            if (!empty($orders)) {
-                $order = $orders[0];
-                $order->update_status('completed', 'Payment confirmed via webhook');
-                $order->save();
+            if (empty($orders)) {
+                status_header(404);
+                echo 'Order not found';
+                exit;
             }
 
+            $order = $orders[0];
+
+            if (!in_array($order->get_status(), ['processing', 'completed'], true)) {
+                $new_status = $order->needs_processing() ? 'processing' : 'completed';
+                $order->update_status($new_status, 'Payment confirmed via webhook');
+                $order->save();
+            }
             status_header(200);
             exit;
         }
@@ -200,16 +217,18 @@ function endozpay_handle_jwt_payload_on_thankyou($order_id)
         return;
     }
 
+    $order = wc_get_order($order_id);
+    $payment_status = strtoupper($decoded['paymentStatus']);
+
     // If payment is processing
-    if (in_array($decoded['paymentStatus'], ['PROCESSING', 'COMPLETED', 'SETTLED'])) {
-        $order = wc_get_order($order_id);
+    if (in_array($payment_status, ['PROCESSING', 'COMPLETED', 'SETTLED'])) {
         if ($order->get_status() !== 'completed') {
-            $order->update_status('processing');
+            $order->update_status('on-hold');
         }
-    } elseif ($decoded['paymentStatus'] === 'FAILED') {
+    } elseif ($payment_status === 'FAILED') {
         // if payment failed, fail the order.
         if ($order->get_status() !== 'failed') {
-            $order->update_status('failed', 'EndozPay payment failed: ' . $decoded['paymentStatus']);
+            $order->update_status('failed', 'EndozPay payment failed: ' . $payment_status);
         }
 
     } else {
@@ -217,14 +236,14 @@ function endozpay_handle_jwt_payload_on_thankyou($order_id)
         $order = wc_get_order($order_id);
         $retry_url = $order->get_checkout_payment_url();
 
-        if ($decoded['paymentStatus'] === 'CANCELLED') {
+        if ($payment_status === 'CANCELLED') {
             wc_add_notice('Payment was cancelled. Please try again.', 'error');
         } else {
             wc_add_notice('Payment failed. Please try again.', 'error');
         }
 
         // Optional: set a failure note
-        $order->add_order_note('EndozPay failed: ' . $decoded['paymentStatus']);
+        $order->add_order_note('EndozPay failed: ' . $payment_status);
         $order->update_status('failed', 'Redirecting to retry payment.');
 
         wp_safe_redirect($retry_url);
