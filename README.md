@@ -19,8 +19,7 @@
 1. Download or clone this repository:
 
 2. Copy the plugin folder into your WordPress installation:
-  ```
-  /wp-content/plugins/endozpay/
+  ``` /wp-content/plugins/endozpay/ ```
 
 3. Activate EndozPay Gateway
 
