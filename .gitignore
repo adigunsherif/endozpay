@@ -1,0 +1,47 @@
+# WordPress environment (if repo is inside wp-content/plugins/)
+wp-config.php
+.htaccess
+index.php
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+debug.log
+
+# IDE/editor folders
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Node / Frontend build artifacts
+node_modules/
+dist/
+build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Composer dependencies
+/vendor/
+composer.lock
+
+# Plugin packaging artifacts
+*.zip
+
+# Environment/secret config
+.env
+.env.*
+.secret
+*.key
+
+# Cache
+.cache/
+*.tmp
+*.bak
+*.swp
+
+# PHPStorm /
