@@ -149,7 +149,18 @@ function endozpay_init_gateway_class()
 
         public function handle_webhook()
         {
-            $data = json_decode(file_get_contents('php://input'), true);
+            $raw_body = file_get_contents('php://input');
+            $received_signature = $_SERVER['HTTP_X_SIGNATURE'] ?? '';
+            $secret_key = $this->secret_key;
+            $expected_signature = hash_hmac('sha512', $raw_body, $secret_key);
+
+            if (!hash_equals($expected_signature, $received_signature)) {
+                status_header(401);
+                echo 'Invalid signature';
+                exit;
+            }
+
+            $data = json_decode($raw_body, true);
             $reference = $data['our_reference'] ?? '';
 
             if (!$reference) {
@@ -158,10 +169,11 @@ function endozpay_init_gateway_class()
                 exit;
             }
 
-            #log decoded message
-            wc_logger('EndozPay Webhook received', [
-                'data' => $data,
-            ]);
+            if (!isset($data['status'])) {
+                status_header(400);
+                echo 'Missing status in webhook data';
+                exit;
+            }
 
             $orders = wc_get_orders([
                 'limit' => 1,
@@ -176,13 +188,20 @@ function endozpay_init_gateway_class()
             }
 
             $order = $orders[0];
+            $status = strtoupper($data['status']);
 
             if (!in_array($order->get_status(), ['processing', 'completed'], true)) {
-                $new_status = $order->needs_processing() ? 'processing' : 'completed';
-                $order->update_status($new_status, 'Payment confirmed via webhook');
+
+                if ($status === 'SETTLED') {
+                    $new_status = $order->needs_processing() ? 'processing' : 'completed';
+                    $order->update_status($new_status, 'Payment confirmed via webhook');
+                } elseif ($status === 'FAILED') {
+                    $order->update_status('failed', 'Payment failed via webhook');
+                }
                 $order->save();
             }
             status_header(200);
+            echo 'success';
             exit;
         }
     }
