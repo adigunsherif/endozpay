@@ -150,7 +150,7 @@ function endozpay_init_gateway_class()
         public function handle_webhook()
         {
             $data = json_decode(file_get_contents('php://input'), true);
-            $reference = $data['reference'] ?? '';
+            $reference = $data['our_reference'] ?? '';
 
             if (!$reference) {
                 status_header(400);
