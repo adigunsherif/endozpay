@@ -5,8 +5,6 @@
  * Author: Disbuz by Celergate
  * Version: 1.0.0
  * Requires Plugins: woocommerce
- * WC requires at least: 7.6
- * WC tested up to: 10.0
  * License: GNU General Public License v3.0
  * License URI: http://www.gnu.org/licenses/gpl-3.0.html
  */
@@ -82,6 +80,15 @@ function endozpay_init_gateway_class()
                     'type' => 'checkbox'
                 )
             );
+        }
+
+        public function is_available() {
+            // Only enable if WooCommerce is using GBP
+            if (get_woocommerce_currency() !== 'GBP') {
+                return false;
+            }
+
+            return parent::is_available();
         }
 
         public function process_payment($order_id)
@@ -255,4 +262,18 @@ function endozpay_handle_jwt_payload_on_thankyou($order_id)
         exit;
     }
 
+}
+
+add_action('admin_notices', 'endozpay_admin_currency_notice');
+function endozpay_admin_currency_notice() {
+    if (!class_exists('WooCommerce')) {
+        return;
+    }
+
+    $currency = get_woocommerce_currency();
+    if ($currency !== 'GBP') {
+        echo '<div class="notice notice-error"><p>';
+        echo '⚠️ <strong>EndozPay Gateway</strong> only supports GBP. Current store currency is <strong>' . esc_html($currency) . '</strong>. Please switch to GBP in <a href="' . esc_url(admin_url('admin.php?page=wc-settings&tab=general')) . '">WooCommerce settings</a>.';
+        echo '</p></div>';
+    }
 }
