@@ -154,6 +154,11 @@ function endozpay_init_gateway_class()
             $secret_key = $this->secret_key;
             $expected_signature = hash_hmac('sha512', $raw_body, $secret_key);
 
+            wc_logger($raw_body);
+            wc_logger($received_signature);
+            wc_logger($secret_key);
+            wc_logger($expected_signature);
+
             if (!hash_equals($expected_signature, $received_signature)) {
                 status_header(401);
                 echo 'Invalid signature';
