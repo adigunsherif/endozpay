@@ -25,7 +25,6 @@ function endozpay_api_login( $base_url, $client_id, $secret_key, $public_key ) {
         error_log('[EndozPay Login Error] ' . $response->get_error_message());
         return false;
     }
-
     $body = json_decode( $response['body'], true );
     return $body['access'] ?? false;
 }

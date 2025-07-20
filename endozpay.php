@@ -24,8 +24,8 @@ function endozpay_init_gateway_class()
         public $public_key;
         public $secret_key;
         public $settlement_account_id;
-        public $webhook_url;
         public $is_production;
+        public $webhook_url;
         public $redirect_url;
 
         public function __construct()
@@ -41,6 +41,7 @@ function endozpay_init_gateway_class()
             foreach ($this->settings as $key => $val) {
                 $this->$key = $val;
             }
+            $this->webhook_url = home_url('/?wc-api=endozpay_webhook');
 
             add_action('woocommerce_update_options_payment_gateways_' . $this->id, array($this, 'process_admin_options'));
             add_action('woocommerce_api_endozpay_webhook', array($this, 'handle_webhook'));
@@ -71,10 +72,6 @@ function endozpay_init_gateway_class()
                     'title' => 'Settlement Account ID',
                     'type' => 'text'
                 ),
-                'webhook_url' => array(
-                    'title' => 'Webhook URL',
-                    'type' => 'text'
-                ),
                 'is_production' => array(
                     'title' => 'Production Mode',
                     'type' => 'checkbox'
@@ -87,13 +84,17 @@ function endozpay_init_gateway_class()
             $order = wc_get_order($order_id);
             $base_url = $this->is_production === 'yes' ? 'https://endozapi.celergate.co.uk' : 'https://endozapi.celergate.net';
 
-
             $token = endozpay_api_login(
                 $base_url,
                 $this->clientid,
                 $this->secret_key,
                 $this->public_key
             );
+
+            if (!$token) {
+                wc_add_notice('Error authenticating with EndozPay. Please contact support.', 'error');
+                return;
+            }
 
             $payer = [
                 'first_name' => $order->get_billing_first_name(),
@@ -102,13 +103,11 @@ function endozpay_init_gateway_class()
                 'address' => $order->get_billing_address_1()
             ];
 
-            $ref = uniqid();
-
             $payload = [
                 'amount' => (float) $order->get_total(),
                 'currency' => "GBP",
                 'settlement_account' => $this->settlement_account_id,
-                'transaction_ref' => $ref,
+                'transaction_ref' => $order->get_order_key(),
                 'narration' => 'Order #' . $order->get_id(),
                 'webhook_url' => $this->webhook_url,
                 'redirect_url' => $order->get_checkout_order_received_url(),
@@ -121,7 +120,13 @@ function endozpay_init_gateway_class()
                 $this->clientid,
                 $payload
             );
+
+            if (!$res || !isset($res['hosted_url'])) {
+                wc_add_notice('Error initiating payment with EndozPay. Please try again.', 'error');
+                return;
+            }
             $order->update_meta_data('_endozpay_reference', $res['reference']);
+            $order->set_transaction_id($your_transaction_ref);
             $order->save();
 
             return [
@@ -134,6 +139,7 @@ function endozpay_init_gateway_class()
         {
             $data = json_decode(file_get_contents('php://input'), true);
             $reference = $data['reference'] ?? '';
+            logger('EndozPay Webhook received', ['reference' => $reference, 'data' => $data]);
 
             $orders = wc_get_orders([
                 'limit' => 1,
@@ -180,29 +186,42 @@ function endozpay_block_support() {
     );
 }
 
-
-
-error_log('[EndozPay] Plugin loaded - current URL: ' . $_SERVER['REQUEST_URI']);
 add_action('woocommerce_thankyou', 'endozpay_handle_jwt_payload_on_thankyou', 10, 1);
 function endozpay_handle_jwt_payload_on_thankyou($order_id)
 {
-    wc_logger('[EndozPay JWT Payload] ');
     if (!isset($_GET['encoded_payload'])) {
         return;
     }
 
     $payload = $_GET['encoded_payload'];
     $decoded = endozpay_decode_jwt_payload($payload);
-    wc_logger('[EndozPay JWT Payload] ' . print_r($decoded, true));
 
     if (!$decoded || !isset($decoded['paymentStatus'])) {
         return;
     }
 
-    // If payment failed, redirect to retry payment
-    if ($decoded['paymentStatus'] !== 'COMPLETED') {
+    // If payment is processing
+    if (in_array($decoded['paymentStatus'], ['PROCESSING', 'COMPLETED', 'SETTLED'])) {
+        $order = wc_get_order($order_id);
+        if ($order->get_status() !== 'completed') {
+            $order->update_status('processing');
+        }
+    } elseif ($decoded['paymentStatus'] === 'FAILED') {
+        // if payment failed, fail the order.
+        if ($order->get_status() !== 'failed') {
+            $order->update_status('failed', 'EndozPay payment failed: ' . $decoded['paymentStatus']);
+        }
+
+    } else {
+        // If payment is not processing or failed, redirect to retry payment.
         $order = wc_get_order($order_id);
         $retry_url = $order->get_checkout_payment_url();
+
+        if ($decoded['paymentStatus'] === 'CANCELLED') {
+            wc_add_notice('Payment was cancelled. Please try again.', 'error');
+        } else {
+            wc_add_notice('Payment failed. Please try again.', 'error');
+        }
 
         // Optional: set a failure note
         $order->add_order_note('EndozPay failed: ' . $decoded['paymentStatus']);
@@ -212,9 +231,4 @@ function endozpay_handle_jwt_payload_on_thankyou($order_id)
         exit;
     }
 
-    // Optional: mark order as paid
-    $order = wc_get_order($order_id);
-    if ($order->get_status() !== 'completed') {
-        $order->update_status('processing');
-    }
 }
