@@ -1,9 +1,14 @@
 <?php
 /**
  * Plugin Name: EndozPay Gateway
- * Description: WooCommerce Payment Gateway for Endoz OpenBanking with Block support.
+ * Description: WooCommerce Payment Gateway for Endoz OpenBanking.
  * Author: Disbuz by Celergate
- * Version: 1.0.1
+ * Version: 1.0.0
+ * Requires Plugins: woocommerce
+ * WC requires at least: 7.6
+ * WC tested up to: 10.0
+ * License: GNU General Public License v3.0
+ * License URI: http://www.gnu.org/licenses/gpl-3.0.html
  */
 
 if (!defined('ABSPATH')) exit;
